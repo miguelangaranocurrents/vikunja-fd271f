@@ -20,8 +20,10 @@
 		<template #default>
 			<div class="kanban-view">
 				<div
+					ref="boardRef"
 					:class="{ 'is-loading': showInitialLoading, 'is-dragging': drag || dragBucket }"
 					class="kanban kanban-bucket-container loader-container"
+					@dragover.capture="handleBoardDragOver"
 				>
 					<BucketDraggable
 						v-bind="DRAG_OPTIONS"
@@ -354,10 +356,58 @@ const DRAG_OPTIONS = {
 	dragClass: 'task-dragging',
 	delayOnTouchOnly: true,
 	delay: 1000,
-	// Sortable's default 30px edge zone is too thin on desktop: a pointer hovering just inside
-	// the board's edge never scrolls the wide board towards the buckets off screen.
-	scrollSensitivity: 80,
 } as const
+
+// Sortable's own edge scrolling does not move the board when a drag hovers near its sides,
+// so the board scrolls itself while a task or bucket is held close to either edge.
+const BOARD_EDGE_ZONE = 80
+const BOARD_EDGE_STEP = 15
+const BOARD_EDGE_IDLE_MS = 150
+const boardRef = ref<HTMLElement | null>(null)
+let edgeScrollDirection = 0
+let edgeScrollFrame: number | null = null
+let lastBoardDragOver = 0
+
+function edgeScrollTick() {
+	edgeScrollFrame = null
+	const board = boardRef.value
+	if (!board || edgeScrollDirection === 0 || performance.now() - lastBoardDragOver > BOARD_EDGE_IDLE_MS) {
+		edgeScrollDirection = 0
+		return
+	}
+	board.scrollLeft += edgeScrollDirection * BOARD_EDGE_STEP
+	edgeScrollFrame = requestAnimationFrame(edgeScrollTick)
+}
+
+function stopEdgeScroll() {
+	edgeScrollDirection = 0
+	if (edgeScrollFrame !== null) {
+		cancelAnimationFrame(edgeScrollFrame)
+		edgeScrollFrame = null
+	}
+}
+
+function handleBoardDragOver(e: DragEvent) {
+	const board = boardRef.value
+	if (!board || !(drag.value || dragBucket.value)) {
+		return
+	}
+
+	lastBoardDragOver = performance.now()
+	const rect = board.getBoundingClientRect()
+	if (e.clientX >= rect.right - BOARD_EDGE_ZONE) {
+		edgeScrollDirection = 1
+	} else if (e.clientX <= rect.left + BOARD_EDGE_ZONE) {
+		edgeScrollDirection = -1
+	} else {
+		edgeScrollDirection = 0
+		return
+	}
+
+	if (edgeScrollFrame === null) {
+		edgeScrollFrame = requestAnimationFrame(edgeScrollTick)
+	}
+}
 
 const MIN_SCROLL_HEIGHT_PERCENT = 0.25
 
@@ -383,6 +433,12 @@ const bucketLimitInputRef = ref<HTMLInputElement | null>(null)
 const drag = ref(false)
 const dragBucket = ref(false)
 const sourceBucket = ref(0)
+
+watch([drag, dragBucket], ([isDraggingTask, isDraggingBucket]) => {
+	if (!isDraggingTask && !isDraggingBucket) {
+		stopEdgeScroll()
+	}
+})
 
 const showBucketDeleteModal = ref(false)
 const bucketToDelete = ref(0)
