@@ -361,29 +361,26 @@ const DRAG_OPTIONS = {
 // Sortable's own edge scrolling does not move the board when a drag hovers near its sides,
 // so the board scrolls itself while a task or bucket is held close to either edge.
 const BOARD_EDGE_ZONE = 80
-const BOARD_EDGE_STEP = 15
-const BOARD_EDGE_IDLE_MS = 150
+const BOARD_EDGE_STEP = 12
+const BOARD_EDGE_TICK_MS = 16
 const boardRef = ref<HTMLElement | null>(null)
 let edgeScrollDirection = 0
-let edgeScrollFrame: number | null = null
-let lastBoardDragOver = 0
+let edgeScrollTimer: ReturnType<typeof setInterval> | null = null
 
 function edgeScrollTick() {
-	edgeScrollFrame = null
 	const board = boardRef.value
-	if (!board || edgeScrollDirection === 0 || performance.now() - lastBoardDragOver > BOARD_EDGE_IDLE_MS) {
-		edgeScrollDirection = 0
+	if (!board || edgeScrollDirection === 0) {
+		stopEdgeScroll()
 		return
 	}
 	board.scrollLeft += edgeScrollDirection * BOARD_EDGE_STEP
-	edgeScrollFrame = requestAnimationFrame(edgeScrollTick)
 }
 
 function stopEdgeScroll() {
 	edgeScrollDirection = 0
-	if (edgeScrollFrame !== null) {
-		cancelAnimationFrame(edgeScrollFrame)
-		edgeScrollFrame = null
+	if (edgeScrollTimer !== null) {
+		clearInterval(edgeScrollTimer)
+		edgeScrollTimer = null
 	}
 }
 
@@ -393,19 +390,18 @@ function handleBoardDragOver(e: DragEvent) {
 		return
 	}
 
-	lastBoardDragOver = performance.now()
 	const rect = board.getBoundingClientRect()
 	if (e.clientX >= rect.right - BOARD_EDGE_ZONE) {
 		edgeScrollDirection = 1
 	} else if (e.clientX <= rect.left + BOARD_EDGE_ZONE) {
 		edgeScrollDirection = -1
 	} else {
-		edgeScrollDirection = 0
+		stopEdgeScroll()
 		return
 	}
 
-	if (edgeScrollFrame === null) {
-		edgeScrollFrame = requestAnimationFrame(edgeScrollTick)
+	if (edgeScrollTimer === null) {
+		edgeScrollTimer = setInterval(edgeScrollTick, BOARD_EDGE_TICK_MS)
 	}
 }
 
